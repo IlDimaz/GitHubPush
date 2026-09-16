@@ -1,0 +1,16 @@
+# Node / build artifacts
+node_modules/
+dist/
+build/
+*.pyc
+__pycache__/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Obsidian local settings
+.obsidian/workspace*
+.obsidian/cache
+

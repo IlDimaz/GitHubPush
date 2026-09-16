@@ -1,0 +1,72 @@
+/* Status bar styling */
+.git-sync-status-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.git-sync-status-bar:hover {
+  color: var(--text-accent);
+}
+
+.git-sync-status-icon {
+  display: inline-block;
+  font-size: 11px;
+}
+
+/* Log Modal styling */
+.git-sync-log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.git-sync-log-container {
+  background-color: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 12px;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  line-height: 1.4;
+  height: 380px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+  color: var(--text-normal);
+}
+
+.git-sync-log-entry {
+  margin-bottom: 3px;
+}
+
+.git-sync-log-entry.error {
+  color: var(--text-error);
+  font-weight: 500;
+}
+
+.git-sync-log-entry.success {
+  color: var(--text-success);
+  font-weight: 500;
+}
+
+.git-sync-log-entry.info {
+  color: var(--text-muted);
+}
+
+.git-sync-log-entry.highlight {
+  color: var(--text-accent);
+  font-weight: bold;
+}
+
+.git-sync-btn-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
