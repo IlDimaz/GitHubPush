@@ -11,7 +11,6 @@ No external Python scripts or terminal commands required — everything runs nat
 - **🚀 One-Click Sync**: Click the sync icon in the left ribbon or click the status bar item.
 - **📁 Automatic Vault Detection**: Automatically determines your vault's local path without manual configuration.
 - **⚡ Fast Background Operations**: Stage, commit, and push changes in the background while you keep writing.
-- **📊 Real-time Log Viewer**: Inspect complete Git outputs, commit messages, and errors in a built-in terminal-like window.
 - **⏱️ Auto-Sync**: Automatically sync your vault on a schedule (every 5, 15, 30, or 60 minutes) or on Obsidian startup.
 - **⌨️ Command Palette Support**: Access sync, pull, push, and logs from `Ctrl+P` (or `Cmd+P` on Mac).
 - **🔒 Flexible Authentication**: Supports Git Credential Manager browser login, GitHub Personal Access Tokens (PAT), and SSH.
@@ -45,19 +44,19 @@ If you use the [Obsidian BRAT](https://github.com/TfTHacker/obsidian42-brat) plu
 
 This plugin requires **Git** installed on your system.
 
-### On Windows:
+### Windows:
 Open PowerShell or Command Prompt and run:
 ```powershell
 winget install Git.Git
 ```
 *(Or download the installer from [git-scm.com](https://git-scm.com)).*
 
-### On macOS:
+### macOS:
 ```bash
 brew install git
 ```
 
-### On Linux (Ubuntu/Debian):
+### Linux:
 ```bash
 sudo apt update && sudo apt install git
 ```
@@ -150,7 +149,6 @@ Open **Settings (`Ctrl+,`) → Community plugins → Git Sync**:
 
 ---
 
-## ❓ Frequently Asked Questions & Troubleshooting
 
 ### Why does the first sync take 3-5 minutes?
 On your very first sync, Git commits and uploads your **entire vault from scratch**, including all images (`.png`, `.jpg`), PDF attachments, and configuration files. Depending on your vault size and home internet upload speed, uploading 50-100MB of attachments will take a few minutes. 
