@@ -1,6 +1,6 @@
 {
   "id": "obs-git-sync",
-  "name": "Git Sync",
+  "name": "GitHub Sync",
   "version": "1.0.0",
   "minAppVersion": "0.15.0",
   "description": "Easily sync your Obsidian vault with a GitHub repository directly from Obsidian.",
