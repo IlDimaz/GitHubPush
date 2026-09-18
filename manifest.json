@@ -1,10 +1,9 @@
 {
   "id": "obs-git-sync",
-  "name": "GitHub Sync",
-  "version": "1.0.0",
+  "name": "GitHub Pull&Push",
+  "version": "1.1.0",
   "minAppVersion": "0.15.0",
   "description": "Easily sync your Obsidian vault with a GitHub repository directly from Obsidian.",
-  "author": "IlDima",
+  "author": "IlDimaz",
   "isDesktopOnly": true
 }
-
