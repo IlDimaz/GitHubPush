@@ -65,8 +65,19 @@
 
 .git-sync-btn-bar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 14px;
+}
+
+.git-sync-btn-bar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.git-sync-confirm-message {
+  white-space: pre-wrap;
+  color: var(--text-normal);
 }
 

@@ -13,8 +13,56 @@ const DEFAULT_SETTINGS = {
   pullBeforePush: false,
   forcePush: true,
   autoSyncIntervalMinutes: 0,
-  syncOnStartup: false
+  syncOnStartup: false,
+  requireVaultStructure: true
 };
+
+/**
+ * Files Obsidian itself keeps in a vault. Their presence in a remote branch is
+ * how we recognise a repository that really holds an Obsidian vault.
+ */
+const OBSIDIAN_BASE_FILES = [
+  '.obsidian/app.json',
+  '.obsidian/appearance.json',
+  '.obsidian/core-plugins.json',
+  '.obsidian/core-plugins-migration.json',
+  '.obsidian/community-plugins.json',
+  '.obsidian/workspace.json',
+  '.obsidian/hotkeys.json',
+  '.obsidian/graph.json',
+  '.obsidian/file-recovery.json'
+];
+
+/**
+ * Inspects a list of repository paths and reports whether they describe an
+ * Obsidian vault. Used on the remote tree *before* anything local is touched.
+ */
+function analyzeRemoteTree(paths) {
+  const normalized = (paths || []).map(p => String(p).replace(/\\/g, '/'));
+  const found = OBSIDIAN_BASE_FILES.filter(f => normalized.includes(f));
+  const missing = OBSIDIAN_BASE_FILES.filter(f => !normalized.includes(f));
+  const hasConfigDir = normalized.some(p => p.startsWith('.obsidian/'));
+
+  return {
+    isVault: hasConfigDir && found.length > 0,
+    hasConfigDir: hasConfigDir,
+    found: found,
+    missing: missing,
+    fileCount: normalized.filter(p => p && !p.endsWith('/')).length
+  };
+}
+
+/**
+ * Thrown when the user interrupts an operation with the Stop button.
+ * Distinguished from real git failures so the caller can report a clean stop
+ * instead of an error.
+ */
+class GitSyncCancelledError extends Error {
+  constructor(message = 'Operation interrupted by user') {
+    super(message);
+    this.name = 'GitSyncCancelledError';
+  }
+}
 
 class GitSyncLogModal extends obsidian.Modal {
   constructor(app, plugin) {
@@ -34,9 +82,19 @@ class GitSyncLogModal extends obsidian.Modal {
 
     const btnBar = contentEl.createDiv({ cls: 'git-sync-btn-bar' });
 
-    const syncBtn = btnBar.createEl('button', { text: 'Sync Now', cls: 'mod-cta' });
-    syncBtn.addEventListener('click', () => {
+    this.syncBtn = btnBar.createEl('button', { text: 'Sync Now', cls: 'mod-cta' });
+    this.syncBtn.addEventListener('click', () => {
       this.plugin.syncVault(true);
+    });
+
+    this.pullBtn = btnBar.createEl('button', { text: 'Pull' });
+    this.pullBtn.addEventListener('click', () => {
+      this.plugin.pullVaultFromGitHub(true);
+    });
+
+    this.stopBtn = btnBar.createEl('button', { text: 'Stop', cls: 'mod-warning git-sync-stop-btn' });
+    this.stopBtn.addEventListener('click', () => {
+      this.plugin.stopOperation();
     });
 
     const copyBtn = btnBar.createEl('button', { text: 'Copy Logs' });
@@ -54,6 +112,7 @@ class GitSyncLogModal extends obsidian.Modal {
     });
 
     this.plugin.activeLogModal = this;
+    this.updateButtons();
   }
 
   onClose() {
@@ -70,6 +129,7 @@ class GitSyncLogModal extends obsidian.Modal {
 
     if (this.plugin.logs.length === 0) {
       this.logContainer.createEl('div', { text: 'No logs recorded yet.', cls: 'git-sync-log-entry info' });
+      this.updateButtons();
       return;
     }
 
@@ -79,6 +139,85 @@ class GitSyncLogModal extends obsidian.Modal {
     }
 
     this.logContainer.scrollTop = this.logContainer.scrollHeight;
+    this.updateButtons();
+  }
+
+  /**
+   * Keeps the action buttons in sync with the plugin state. Called on open, on
+   * every log line and whenever the plugin starts/stops an operation.
+   */
+  updateButtons() {
+    const running = !!this.plugin.isSyncing;
+    const stopping = !!this.plugin.cancelRequested;
+
+    if (this.syncBtn) {
+      this.syncBtn.disabled = running;
+      this.syncBtn.setText(running ? 'Syncing...' : 'Sync Now');
+    }
+
+    if (this.pullBtn) {
+      this.pullBtn.disabled = running;
+      this.pullBtn.setText(running ? 'Pulling...' : 'Pull');
+    }
+
+    if (this.stopBtn) {
+      this.stopBtn.disabled = !running || stopping;
+      this.stopBtn.setText(stopping ? 'Stopping...' : 'Stop');
+    }
+  }
+}
+
+/**
+ * Asks the user to confirm a destructive action (e.g. overwriting local files
+ * with the remote vault). Resolves true when confirmed, false otherwise.
+ */
+class GitSyncConfirmModal extends obsidian.Modal {
+  constructor(app, options = {}) {
+    super(app);
+    this.title = options.title || 'Confirm';
+    this.message = options.message || '';
+    this.confirmText = options.confirmText || 'Confirm';
+    this.cancelText = options.cancelText || 'Cancel';
+    this.onConfirm = options.onConfirm || null;
+    this.onCancel = options.onCancel || null;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    contentEl.createEl('h2', { text: this.title });
+    contentEl.createEl('p', { text: this.message, cls: 'git-sync-confirm-message' });
+
+    const btnBar = contentEl.createDiv({ cls: 'git-sync-btn-bar' });
+
+    const cancelBtn = btnBar.createEl('button', { text: this.cancelText });
+    cancelBtn.addEventListener('click', () => {
+      this._settle(false);
+    });
+
+    const confirmBtn = btnBar.createEl('button', { text: this.confirmText, cls: 'mod-warning' });
+    confirmBtn.addEventListener('click', () => {
+      this._settle(true);
+    });
+  }
+
+  _settle(confirmed) {
+    const confirmCb = this.onConfirm;
+    const cancelCb = this.onCancel;
+    this.onConfirm = null;
+    this.onCancel = null;
+    this.close();
+    if (confirmed && confirmCb) confirmCb();
+    if (!confirmed && cancelCb) cancelCb();
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+    if (this.onConfirm || this.onCancel) {
+      this._settle(false);
+    }
   }
 }
 
@@ -220,6 +359,16 @@ class GitSyncSettingTab extends obsidian.PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
+    new obsidian.Setting(containerEl)
+      .setName('Require Obsidian Vault Structure')
+      .setDesc('When pulling from GitHub, verify that the remote repository actually contains an Obsidian vault (an .obsidian folder with config files) before overwriting local files.')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.requireVaultStructure)
+        .onChange(async (value) => {
+          this.plugin.settings.requireVaultStructure = value;
+          await this.plugin.saveSettings();
+        }));
+
     containerEl.createEl('h3', { text: 'Actions' });
 
     new obsidian.Setting(containerEl)
@@ -236,6 +385,16 @@ class GitSyncSettingTab extends obsidian.PluginSettingTab {
         .onClick(() => {
           new GitSyncLogModal(this.app, this.plugin).open();
         }));
+
+    new obsidian.Setting(containerEl)
+      .setName('Pull Vault From GitHub')
+      .setDesc('Fetch the repository configured above and validate that it contains an Obsidian vault, then replace the files in this vault with the remote content. Local changes that were never committed are lost, so this asks for confirmation first.')
+      .addButton(btn => btn
+        .setButtonText('Pull Vault')
+        .setWarning()
+        .onClick(() => {
+          this.plugin.pullVaultFromGitHub(true);
+        }));
   }
 }
 
@@ -243,6 +402,8 @@ class GitSyncPlugin extends obsidian.Plugin {
   async onload() {
     this.logs = [];
     this.isSyncing = false;
+    this.cancelRequested = false;
+    this.activeChildren = new Set();
     this.activeLogModal = null;
     this.intervalId = null;
 
@@ -275,6 +436,12 @@ class GitSyncPlugin extends obsidian.Plugin {
     });
 
     this.addCommand({
+      id: 'git-sync-pull-vault',
+      name: 'Pull vault from GitHub (replace local files)',
+      callback: () => this.pullVaultFromGitHub(true)
+    });
+
+    this.addCommand({
       id: 'git-sync-push',
       name: 'Push changes to GitHub',
       callback: () => this.pushVault(true)
@@ -284,6 +451,16 @@ class GitSyncPlugin extends obsidian.Plugin {
       id: 'git-sync-logs',
       name: 'View sync logs & status',
       callback: () => new GitSyncLogModal(this.app, this).open()
+    });
+
+    this.addCommand({
+      id: 'git-sync-stop',
+      name: 'Stop current sync operation',
+      checkCallback: (checking) => {
+        if (!this.isSyncing) return false;
+        if (!checking) this.stopOperation();
+        return true;
+      }
     });
 
     // Settings tab
@@ -308,6 +485,14 @@ class GitSyncPlugin extends obsidian.Plugin {
     if (this.intervalId) {
       window.clearInterval(this.intervalId);
       this.intervalId = null;
+    }
+
+    // Never leave a git process running when the plugin is disabled mid-operation.
+    if (this.isSyncing) {
+      this.cancelRequested = true;
+      this.killActiveChildProcesses();
+      this.isSyncing = false;
+      this.activeChildren.clear();
     }
   }
 
@@ -366,8 +551,81 @@ class GitSyncPlugin extends obsidian.Plugin {
     this.statusBarItem.setText(`Git Sync: ${icon ? icon + ' ' : ''}${statusText}`);
   }
 
+  setSyncingState(running) {
+    this.isSyncing = running;
+    if (!running) {
+      this.cancelRequested = false;
+      this.activeChildren.clear();
+    }
+    this.notifyModalState();
+  }
+
+  notifyModalState() {
+    if (this.activeLogModal && typeof this.activeLogModal.updateButtons === 'function') {
+      this.activeLogModal.updateButtons();
+    }
+  }
+
+  /**
+   * Interrupts the running sync/pull/push by killing its git process tree.
+   * The pending executeGit promise rejects with GitSyncCancelledError, which
+   * stops the remaining steps of the operation.
+   */
+  stopOperation() {
+    if (!this.isSyncing) {
+      new obsidian.Notice('Git Sync: no operation is currently running.');
+      return;
+    }
+    if (this.cancelRequested) {
+      new obsidian.Notice('Git Sync: already stopping...');
+      return;
+    }
+
+    this.cancelRequested = true;
+    this.log('Stop requested - interrupting the running git process...', 'error');
+    this.updateStatusBar('Stopping...', '⏹');
+    this.killActiveChildProcesses();
+    this.notifyModalState();
+  }
+
+  killActiveChildProcesses() {
+    for (const child of this.activeChildren) {
+      if (!child || child.killed || !child.pid) continue;
+
+      try {
+        if (process.platform === 'win32') {
+          // Git runs under cmd.exe because we spawn with shell: true, so killing
+          // the shell alone would leave git.exe running. Kill the whole tree.
+          spawn(this.getTaskkillPath(), ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+        } else {
+          child.kill('SIGTERM');
+          const target = child;
+          window.setTimeout(() => {
+            try {
+              if (!target.killed) target.kill('SIGKILL');
+            } catch (e) {
+              // Process is already gone.
+            }
+          }, 2000);
+        }
+      } catch (err) {
+        this.log(`Failed to stop git process: ${err.message}`, 'error');
+      }
+    }
+  }
+
+  getTaskkillPath() {
+    const root = process.env.SystemRoot || process.env.windir || 'C:\\Windows';
+    const fullPath = path.join(root, 'System32', 'taskkill.exe');
+    return fs.existsSync(fullPath) ? fullPath : 'taskkill';
+  }
+
   executeGit(args, cwd) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      if (this.cancelRequested) {
+        return reject(new GitSyncCancelledError('Git command skipped: operation was stopped.'));
+      }
+
       const gitCmd = this.settings.gitPath || 'git';
       this.log(`$ ${gitCmd} ${args.join(' ')}`, 'info');
 
@@ -385,8 +643,29 @@ class GitSyncPlugin extends obsidian.Plugin {
         return resolve({ success: false, stdout: '', stderr: errMsg, code: -1 });
       }
 
+      // Only track processes that belong to a vault operation, so one-off
+      // commands (e.g. "Test Git" from the settings tab) are never interrupted.
+      if (this.isSyncing) {
+        this.activeChildren.add(child);
+      }
+
       let stdout = '';
       let stderr = '';
+      let settled = false;
+
+      const settle = (code, errorText) => {
+        if (settled) return;
+        settled = true;
+        this.activeChildren.delete(child);
+
+        if (this.cancelRequested) {
+          return reject(new GitSyncCancelledError());
+        }
+        if (errorText) {
+          return resolve({ success: false, stdout, stderr: errorText, code: -1 });
+        }
+        resolve({ success: code === 0, stdout, stderr, code });
+      };
 
       child.stdout.on('data', (data) => {
         const str = data.toString();
@@ -406,22 +685,26 @@ class GitSyncPlugin extends obsidian.Plugin {
           errorText = `Git not found at "${gitCmd}". Please install Git (e.g. winget install Git.Git) or specify the full path in settings.`;
         }
         this.log(`Error: ${errorText}`, 'error');
-        resolve({ success: false, stdout, stderr: errorText, code: -1 });
+        settle(-1, errorText);
       });
 
       child.on('close', (code) => {
-        resolve({ success: code === 0, stdout, stderr, code });
+        settle(code);
       });
     });
   }
 
   async testGitInstallation() {
     const vaultPath = this.getVaultBasePath() || process.cwd();
-    const res = await this.executeGit(['--version'], vaultPath);
-    if (res.success) {
-      return { success: true, version: res.stdout.trim() };
+    try {
+      const res = await this.executeGit(['--version'], vaultPath);
+      if (res.success) {
+        return { success: true, version: res.stdout.trim() };
+      }
+      return { success: false, error: res.stderr || 'Git process exited with an error' };
+    } catch (err) {
+      return { success: false, error: err.message };
     }
-    return { success: false, error: res.stderr || 'Git process exited with an error' };
   }
 
   formatCommitMessage() {
@@ -434,26 +717,11 @@ class GitSyncPlugin extends obsidian.Plugin {
   }
 
   async syncVault(manual = true) {
-    if (this.isSyncing) {
-      new obsidian.Notice('Git Sync is already in progress.');
-      return;
-    }
+    const ctx = this.prepareOperation({ requireRepoUrl: true });
+    if (!ctx) return;
+    const { vaultPath, repoUrl, branch } = ctx;
 
-    const vaultPath = this.getVaultBasePath();
-    if (!vaultPath) {
-      new obsidian.Notice('Error: Could not determine local vault path.');
-      return;
-    }
-
-    const repoUrl = (this.settings.repoUrl || '').trim();
-    if (!repoUrl) {
-      new obsidian.Notice('Please configure your GitHub Repository URL in Git Sync settings first.');
-      return;
-    }
-
-    const branch = (this.settings.branch || 'main').trim();
-
-    this.isSyncing = true;
+    this.setSyncingState(true);
     this.updateStatusBar('Syncing...', '⏳');
     if (manual) new obsidian.Notice('Git Sync: Starting synchronization...');
     this.log(`\n========================================`, 'highlight');
@@ -545,11 +813,227 @@ class GitSyncPlugin extends obsidian.Plugin {
       if (manual) new obsidian.Notice('Git Sync: Vault successfully synced to GitHub!');
 
     } catch (err) {
-      this.log(`--- SYNC ERROR: ${err.message} ---`, 'error');
-      this.updateStatusBar('Sync Failed', '✗');
-      new obsidian.Notice(`Git Sync failed: ${err.message}`, 7000);
+      if (err instanceof GitSyncCancelledError) {
+        this.log('--- SYNC STOPPED BY USER ---', 'highlight');
+        this.log('Vault may be partially synced (e.g. committed locally but not pushed). Run Sync again to reconcile.', 'info');
+        this.updateStatusBar('Stopped', '⏹');
+        new obsidian.Notice('Git Sync: Operation stopped.', 4000);
+      } else {
+        this.log(`--- SYNC ERROR: ${err.message} ---`, 'error');
+        this.updateStatusBar('Sync Failed', '✗');
+        new obsidian.Notice(`Git Sync failed: ${err.message}`, 7000);
+      }
     } finally {
-      this.isSyncing = false;
+      this.setSyncingState(false);
+    }
+  }
+
+  /**
+   * Shared entry checks for an operation. Returns null (after telling the user
+   * why) when the operation must not start.
+   */
+  prepareOperation(settings) {
+    const options = settings || {};
+
+    if (this.isSyncing) {
+      new obsidian.Notice('An operation is already in progress.');
+      return null;
+    }
+
+    const vaultPath = this.getVaultBasePath();
+    if (!vaultPath) {
+      new obsidian.Notice('Error: Could not determine local vault path.');
+      return null;
+    }
+
+    const repoUrl = (this.settings.repoUrl || '').trim();
+    if (options.requireRepoUrl && !repoUrl) {
+      new obsidian.Notice('Please configure your GitHub Repository URL in Git Sync settings first.');
+      return null;
+    }
+
+    return {
+      vaultPath: vaultPath,
+      repoUrl: repoUrl,
+      branch: (this.settings.branch || 'main').trim()
+    };
+  }
+
+  /**
+   * Opens a confirmation dialog and resolves true only when the user confirms.
+   */
+  confirmAction(options) {
+    return new Promise((resolve) => {
+      new GitSyncConfirmModal(this.app, {
+        title: options.title,
+        message: options.message,
+        confirmText: options.confirmText,
+        cancelText: options.cancelText,
+        onConfirm: () => resolve(true),
+        onCancel: () => resolve(false)
+      }).open();
+    });
+  }
+
+  /**
+   * Pulls the configured repository into this vault: fetch, verify that the
+   * remote really contains an Obsidian vault, confirm, then reset the local
+   * files to the remote branch.
+   */
+  async pullVaultFromGitHub(manual = true) {
+    const ctx = this.prepareOperation({ requireRepoUrl: true });
+    if (!ctx) return;
+    const { vaultPath, repoUrl, branch } = ctx;
+
+    this.setSyncingState(true);
+    this.updateStatusBar('Pulling...', '⏳');
+    this.log(`\n========================================`, 'highlight');
+    this.log(`Pull started: ${new Date().toLocaleString()}`, 'highlight');
+    this.log(`Remote: ${repoUrl} (${branch})`, 'info');
+    this.log(`Vault directory: ${vaultPath}`, 'info');
+    this.log(`========================================`, 'highlight');
+
+    try {
+      // 1. Make sure the vault folder is a git repository
+      const gitDir = path.join(vaultPath, '.git');
+      if (!fs.existsSync(gitDir)) {
+        this.log('Initializing local git repository...', 'highlight');
+        const initRes = await this.executeGit(['init'], vaultPath);
+        if (!initRes.success) throw new Error(`git init failed: ${initRes.stderr}`);
+        await this.executeGit(['branch', '-M', branch], vaultPath);
+      }
+
+      // 2. Point origin at the configured repository
+      this.log('Configuring remote origin...', 'highlight');
+      await this.executeGit(['remote', 'remove', 'origin'], vaultPath);
+      const remoteRes = await this.executeGit(['remote', 'add', 'origin', repoUrl], vaultPath);
+      if (!remoteRes.success) {
+        await this.executeGit(['remote', 'set-url', 'origin', repoUrl], vaultPath);
+      }
+
+      // 3. Download the remote branch (this does not touch local files yet)
+      this.log(`Fetching origin/${branch}...`, 'highlight');
+      const fetchRes = await this.executeGit(['fetch', 'origin', branch], vaultPath);
+      if (!fetchRes.success) {
+        throw new Error(fetchRes.stderr || `Could not fetch origin/${branch}. Check the repository URL and your credentials.`);
+      }
+
+      // 4. Validate the remote content before overwriting anything
+      const treeRes = await this.executeGit(['ls-tree', '-r', '--name-only', `origin/${branch}`], vaultPath);
+      if (!treeRes.success) {
+        throw new Error(treeRes.stderr || `Could not read the remote tree of origin/${branch}.`);
+      }
+
+      const remotePaths = (treeRes.stdout || '').split(/\r?\n/).filter(l => l.trim().length > 0);
+      const vaultInfo = analyzeRemoteTree(remotePaths);
+      this.lastPullInfo = vaultInfo;
+
+      if (vaultInfo.isVault) {
+        this.log('Remote verified: Obsidian vault structure detected.', 'success');
+        this.log(`  .obsidian base files: ${vaultInfo.found.length}/${OBSIDIAN_BASE_FILES.length}`, 'info');
+        this.log(`  Found: ${vaultInfo.found.join(', ')}`, 'info');
+      } else {
+        this.log('Remote repository does not look like an Obsidian vault.', 'error');
+        this.log(`  .obsidian config folder: ${vaultInfo.hasConfigDir ? 'found' : 'MISSING'}`, 'error');
+        this.log(`  Obsidian base files found: ${vaultInfo.found.length}/${OBSIDIAN_BASE_FILES.length}`, 'error');
+        this.log('  A vault must contain an .obsidian folder with the files Obsidian itself writes (app.json, appearance.json, ...).', 'info');
+      }
+
+      this.log(`Files on remote: ${vaultInfo.fileCount}`, 'info');
+
+      // 5. Describe what is about to be downloaded.
+      // Args go through a shell, so the format string must not contain spaces
+      // or pipe characters - use %n as the separator instead.
+      const headRes = await this.executeGit(['log', '-1', '--format=%h%n%an%n%ad%n%s', `origin/${branch}`], vaultPath);
+      if (headRes.success && headRes.stdout.trim()) {
+        const lines = headRes.stdout.trim().split(/\r?\n/);
+        const hash = lines[0] || '?';
+        const author = lines[1] || 'unknown';
+        const date = lines[2] || '';
+        const subject = lines[3] || '';
+        this.log(`Remote HEAD: ${hash} - ${subject} (${author}${date ? ', ' + date : ''})`, 'info');
+      }
+
+      const localHeadRes = await this.executeGit(['rev-parse', '--verify', 'HEAD'], vaultPath);
+      if (localHeadRes.success) {
+        const deltaRes = await this.executeGit(['rev-list', '--left-right', '--count', `origin/${branch}...HEAD`], vaultPath);
+        if (deltaRes.success && deltaRes.stdout.trim()) {
+          const parts = deltaRes.stdout.trim().split(/\s+/);
+          this.log(`Commit difference (remote-only / local-only): ${parts[0] || 0} / ${parts[1] || 0}`, 'info');
+        }
+      } else {
+        this.log('Local repository has no commits yet - this is a fresh pull.', 'info');
+      }
+
+      // Abort before touching local files when the remote is not a vault
+      if (!vaultInfo.isVault && this.settings.requireVaultStructure) {
+        this.log('Aborted: no local file was changed.', 'error');
+        this.log('Disable "Require Obsidian Vault Structure" in the Git Sync settings to pull this repository anyway.', 'info');
+        throw new Error('The remote repository is not an Obsidian vault - nothing was pulled.');
+      }
+
+      // 6. Ask the user before overwriting local files
+      if (manual) {
+        const statusRes = await this.executeGit(['status', '--porcelain'], vaultPath);
+        const dirtyCount = (statusRes.stdout || '').split(/\r?\n/).filter(l => l.trim().length > 0).length;
+        const message = [
+          `Download ${vaultInfo.fileCount} file(s) from ${repoUrl} (${branch}) and replace the contents of this vault?`,
+          dirtyCount > 0
+            ? `${dirtyCount} local file(s) have uncommitted changes and will be overwritten.`
+            : 'No uncommitted local changes were found.',
+          'This cannot be undone.'
+        ].join('\n\n');
+
+        const proceed = await this.confirmAction({
+          title: 'Pull vault from GitHub?',
+          message: message,
+          confirmText: 'Pull & overwrite'
+        });
+
+        if (!proceed) {
+          this.log('Pull cancelled by user - nothing was changed.', 'highlight');
+          this.updateStatusBar('Ready', '✓');
+          new obsidian.Notice('Git Sync: Pull cancelled.');
+          return;
+        }
+      }
+
+      // 7. Replace the local files with the remote branch
+      this.log(`Checking out origin/${branch}...`, 'highlight');
+      const resetRes = await this.executeGit(['reset', '--hard', `origin/${branch}`], vaultPath);
+      if (!resetRes.success) {
+        throw new Error(resetRes.stderr || 'git reset failed');
+      }
+      await this.executeGit(['branch', '--set-upstream-to', `origin/${branch}`, branch], vaultPath);
+
+      // 8. Confirm the vault is really on disk now
+      if (vaultInfo.found.length > 0) {
+        const verified = vaultInfo.found.filter(f => fs.existsSync(path.join(vaultPath, ...f.split('/'))));
+        if (verified.length === vaultInfo.found.length) {
+          this.log(`Vault verified on disk: all ${verified.length} Obsidian base files are present.`, 'success');
+        } else {
+          this.log(`Vault check after pull: ${verified.length}/${vaultInfo.found.length} Obsidian base files present.`, 'error');
+        }
+      }
+
+      this.log(`--- PULL COMPLETED (${vaultInfo.fileCount} files) ---`, 'success');
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      this.updateStatusBar(`Pulled at ${timeStr}`, '✓');
+      if (manual) new obsidian.Notice(`Git Sync: Vault pulled from GitHub (${vaultInfo.fileCount} files).`);
+
+    } catch (err) {
+      if (err instanceof GitSyncCancelledError) {
+        this.log('--- PULL STOPPED BY USER ---', 'highlight');
+        this.log('Local files may be partially updated. Run Pull again to finish.', 'info');
+        this.updateStatusBar('Stopped', '⏹');
+        new obsidian.Notice('Git Sync: Pull stopped.', 4000);
+      } else {
+        this.log(`Pull failed: ${err.message}`, 'error');
+        this.updateStatusBar('Pull Failed', '✗');
+        new obsidian.Notice(`Git Sync: Pull failed: ${err.message}`, 6000);
+      }
+    } finally {
+      this.setSyncingState(false);
     }
   }
 
@@ -564,7 +1048,7 @@ class GitSyncPlugin extends obsidian.Plugin {
 
     const branch = (this.settings.branch || 'main').trim();
 
-    this.isSyncing = true;
+    this.setSyncingState(true);
     this.updateStatusBar('Pulling...', '⏳');
     this.log(`Pulling from origin ${branch}...`, 'highlight');
 
@@ -578,11 +1062,17 @@ class GitSyncPlugin extends obsidian.Plugin {
         throw new Error(res.stderr || 'Pull failed');
       }
     } catch (err) {
-      this.log(`Pull failed: ${err.message}`, 'error');
-      this.updateStatusBar('Pull Failed', '✗');
-      new obsidian.Notice(`Git Sync: Pull failed: ${err.message}`, 6000);
+      if (err instanceof GitSyncCancelledError) {
+        this.log('--- PULL STOPPED BY USER ---', 'highlight');
+        this.updateStatusBar('Stopped', '⏹');
+        new obsidian.Notice('Git Sync: Pull stopped.', 4000);
+      } else {
+        this.log(`Pull failed: ${err.message}`, 'error');
+        this.updateStatusBar('Pull Failed', '✗');
+        new obsidian.Notice(`Git Sync: Pull failed: ${err.message}`, 6000);
+      }
     } finally {
-      this.isSyncing = false;
+      this.setSyncingState(false);
     }
   }
 
@@ -597,7 +1087,7 @@ class GitSyncPlugin extends obsidian.Plugin {
 
     const branch = (this.settings.branch || 'main').trim();
 
-    this.isSyncing = true;
+    this.setSyncingState(true);
     this.updateStatusBar('Pushing...', '⏳');
     this.log(`Pushing to origin ${branch}...`, 'highlight');
 
@@ -614,11 +1104,17 @@ class GitSyncPlugin extends obsidian.Plugin {
         throw new Error(res.stderr || 'Push failed');
       }
     } catch (err) {
-      this.log(`Push failed: ${err.message}`, 'error');
-      this.updateStatusBar('Push Failed', '✗');
-      new obsidian.Notice(`Git Sync: Push failed: ${err.message}`, 6000);
+      if (err instanceof GitSyncCancelledError) {
+        this.log('--- PUSH STOPPED BY USER ---', 'highlight');
+        this.updateStatusBar('Stopped', '⏹');
+        new obsidian.Notice('Git Sync: Push stopped.', 4000);
+      } else {
+        this.log(`Push failed: ${err.message}`, 'error');
+        this.updateStatusBar('Push Failed', '✗');
+        new obsidian.Notice(`Git Sync: Push failed: ${err.message}`, 6000);
+      }
     } finally {
-      this.isSyncing = false;
+      this.setSyncingState(false);
     }
   }
 }
