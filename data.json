@@ -1,0 +1,13 @@
+{
+  "repoUrl": "https://github.com/IlDimaz/INGINFMN",
+  "branch": "main",
+  "gitPath": "git",
+  "authorName": "IlDimaz",
+  "authorEmail": "loredima2005@gmail.com",
+  "commitMessage": "Auto-sync Obsidian Vault - {date} {time}",
+  "pullBeforePush": false,
+  "forcePush": true,
+  "autoSyncIntervalMinutes": 60,
+  "syncOnStartup": false,
+  "requireVaultStructure": true
+}
