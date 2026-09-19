@@ -38,18 +38,6 @@ Git operations are handled directly by the plugin, so no external Python scripts
 7. Go to **Settings → Community plugins**.
 8. Reload the plugins and enable **GitHub Pull&Push**.
 
-### Using BRAT
-
-You can also install the plugin through the Obsidian BRAT plugin.
-
-1. Install and enable BRAT.
-2. Open the Command Palette with `Ctrl+P`.
-3. Run:
-
-```text
-BRAT: Add a beta plugin for testing
-```
-
 4. Enter:
 
 ```text
