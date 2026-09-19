@@ -1,199 +1,528 @@
-# Obsidian Git Sync
+# Obsidian GitHub Pull&Push
 
-A lightweight, zero-bloat Obsidian community plugin that lets you sync your entire Obsidian vault directly to a GitHub repository with a single click.
+A lightweight Obsidian community plugin for synchronizing your entire Obsidian vault with a GitHub repository.
 
-No external Python scripts or terminal commands required — everything runs natively inside Obsidian!
+Git operations are handled directly by the plugin, so no external Python scripts or manual terminal commands are required.
 
----
+## Features
 
-## ✨ Features
+* **One-click synchronization** — Sync your vault from the ribbon icon or the status bar.
+* **Automatic vault detection** — The plugin automatically detects the local path of the currently open vault.
+* **Git initialization** — Automatically initializes a Git repository inside the vault when needed.
+* **Pull and push support** — Pull changes from GitHub, push local changes, or run a complete sync.
+* **Automatic synchronization** — Optionally sync your vault every 5, 15, 30, or 60 minutes.
+* **Sync on startup** — Optionally start a synchronization shortly after Obsidian starts.
+* **Interruptible operations** — Stop an active Git operation directly from the log viewer or Command Palette.
+* **Live operation logs** — View Git output and synchronization status directly inside Obsidian.
+* **Vault restoration** — Download and restore an entire Obsidian vault from a GitHub repository.
+* **Remote vault validation** — Before replacing local files, the plugin can verify that the remote repository actually contains an Obsidian vault.
+* **Configurable Git executable** — Use `git` from the system PATH or specify a custom Git executable.
+* **Custom commit messages** — Configure a commit message template with `{date}` and `{time}` placeholders.
+* **Flexible authentication** — GitHub authentication is handled through Git, supporting HTTPS credentials, Git Credential Manager, PATs, and SSH.
 
-- **🚀 One-Click Sync**: Click the sync icon in the left ribbon or click the status bar item.
-- **📁 Automatic Vault Detection**: Automatically determines your vault's local path without manual configuration.
-- **⚡ Fast Background Operations**: Stage, commit, and push changes in the background while you keep writing.
-- **⏱️ Auto-Sync**: Automatically sync your vault on a schedule (every 5, 15, 30, or 60 minutes) or on Obsidian startup.
-- **⏹️ Interruptible Sync**: Stop a running sync, pull, or push at any time from the **Log Viewer** (or the *Stop current sync operation* command). The git process is terminated immediately, so you never have to wait for a stuck or huge upload to finish.
-- **📥 Pull Vault From GitHub**: Bootstrap or restore a whole vault straight from a repository URL. The remote branch is checked for Obsidian's own config files (`.obsidian/app.json`, `appearance.json`, ...) **before** anything local is touched, so a repository that is not a vault can never overwrite your notes.
-- **⌨️ Command Palette Support**: Access sync, pull, import, stop, and logs from `Ctrl+P` (or `Cmd+P` on Mac).
-- **🔒 Flexible Authentication**: Supports Git Credential Manager browser login, GitHub Personal Access Tokens (PAT), and SSH.
+## Installation
 
----
+### Manual Installation
 
-## 📥 Installation
+1. Download the latest `main.js`, `manifest.json`, and `styles.css` from the repository.
+2. Open your Obsidian vault directory.
+3. Navigate to:
 
-### Method 1: Manual Installation (Recommended)
+```text
+<Your-Vault>/.obsidian/plugins/obsidian-git-sync/
+```
 
-1. Download the latest release (`main.js`, `manifest.json`, and `styles.css`).
-2. In your Obsidian vault, navigate to the plugins folder:
-   ```text
-   <Your-Vault>/.obsidian/plugins/obsidian-git-sync/
-   ```
-   *(Create the `obsidian-git-sync` folder if it doesn't exist).*
-3. Place `main.js`, `manifest.json`, and `styles.css` inside that folder.
-4. Open Obsidian, go to **Settings → Community plugins**, click **Reload plugins**, and enable **Git Sync**.
+4. Create the `obsidian-git-sync` directory if it does not exist.
+5. Place the three downloaded files inside it.
+6. Open Obsidian.
+7. Go to **Settings → Community plugins**.
+8. Reload the plugins and enable **GitHub Pull&Push**.
 
-### Method 2: Via BRAT Plugin
+### Using BRAT
 
-If you use the [Obsidian BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin:
-1. Open the Command Palette (`Ctrl+P`).
-2. Search for `BRAT: Add a beta plugin for testing`.
-3. Paste the repository URL: `https://github.com/IlDimaz/ObsidianSync` (or your repo URL).
-4. Click **Add Plugin**.
+You can also install the plugin through the Obsidian BRAT plugin.
 
----
+1. Install and enable BRAT.
+2. Open the Command Palette with `Ctrl+P`.
+3. Run:
 
-## ⚙️ Prerequisites
+```text
+BRAT: Add a beta plugin for testing
+```
 
-This plugin requires **Git** installed on your system.
+4. Enter:
 
-### Windows:
-Open PowerShell or Command Prompt and run:
+```text
+https://github.com/IlDimaz/ObsidianGitManage
+```
+
+5. Add the plugin and enable it from Obsidian's Community Plugins settings.
+
+## Requirements
+
+The plugin requires Git to be installed on your computer.
+
+### Windows
+
+Using PowerShell or Command Prompt:
+
 ```powershell
 winget install Git.Git
 ```
-*(Or download the installer from [git-scm.com](https://git-scm.com)).*
 
-### macOS:
+Alternatively, install Git from:
+
+https://git-scm.com/
+
+### macOS
+
 ```bash
 brew install git
 ```
 
-### Linux:
+### Linux
+
+On Debian/Ubuntu:
+
 ```bash
-sudo apt update && sudo apt install git
+sudo apt update
+sudo apt install git
 ```
 
----
+You can verify that Git is available with:
 
-## 🔑 How to Log In & Authenticate with GitHub
+```bash
+git --version
+```
 
-You have three easy ways to authenticate Git with GitHub:
+The plugin also includes a **Test Git** button in its settings to verify the configured Git executable.
 
-### Option 1: Browser Login (Easiest — Recommended)
+## Configuration
 
-Git for Windows/macOS comes with **Git Credential Manager** pre-installed.
+Open:
 
-1. When you run your first sync from Obsidian (or terminal), Git will automatically launch a popup window in your web browser.
-2. Click **"Sign in with your browser"**.
-3. Authorize the application.
-4. Done! Windows Credential Manager will securely remember your session forever. You won't have to enter passwords again.
+**Settings → Community plugins → GitHub Pull&Push**
 
----
+### GitHub Repository URL
 
-### Option 2: GitHub Personal Access Token (PAT)
+The remote Git repository used for synchronization.
 
-If you prefer using a token or if two-factor authentication (2FA) is enabled on your GitHub account:
+Example:
 
-#### Step 1: Generate the Token on GitHub
-1. Log into [GitHub](https://github.com).
-2. Click your profile picture in the top-right corner → **Settings**.
-3. Scroll all the way down the left sidebar and click **Developer settings** (or visit `https://github.com/settings/apps`).
-4. Click **Personal access tokens** → **Tokens (classic)**.
-5. Click **Generate new token** → **Generate new token (classic)**.
-6. Under **Note**, enter a name (e.g. `Obsidian Vault Sync`).
-7. Under **Expiration**, select your preferred duration (e.g. `90 days` or `No expiration`).
-8. Under **Select scopes**, check the box for:
-   - ✅ **`repo`** (Full control of private repositories).
-9. Scroll down and click the green **Generate token** button.
-10. **Copy your token immediately** (it starts with `ghp_...`). *You won't be able to see it again!*
-
-#### Step 2: Use the Token in Obsidian
-In **Settings → Git Sync → GitHub Repository URL**, embed your token into the URL like this:
 ```text
-https://<YOUR_TOKEN>@github.com/username/repository.git
+https://github.com/username/my-vault.git
 ```
-*Example:*
+
+SSH repositories are also supported:
+
 ```text
-https://ghp_AbCdEf1234567890@github.com/IlDimaz/INGINFMN.git
+git@github.com:username/my-vault.git
 ```
-Git will authenticate seamlessly using your token for all sync operations.
 
----
+### Git Executable Path
 
-### Option 3: GitHub CLI
+The Git executable used by the plugin.
 
-If you have GitHub CLI installed, you can log in directly from your terminal:
+The default value is:
+
+```text
+git
+```
+
+If Git is not available through your system PATH, you can specify the complete executable path.
+
+Example on Windows:
+
+```text
+C:\Program Files\Git\cmd\git.exe
+```
+
+A **Test Git** button is available to verify the configuration.
+
+### Git Author Name
+
+The name used when creating Git commits.
+
+### Git Author Email
+
+The email address used when creating Git commits.
+
+### Branch
+
+The Git branch used for synchronization.
+
+Default:
+
+```text
+main
+```
+
+### Commit Message Template
+
+Defines the message used when creating automatic commits.
+
+Default:
+
+```text
+Auto-sync Obsidian Vault - {date} {time}
+```
+
+Available placeholders:
+
+* `{date}` — current date in `YYYY-MM-DD` format
+* `{time}` — current time in `HH:MM:SS` format
+
+### Pull Before Push
+
+When enabled, the plugin pulls the configured remote branch before staging and committing local changes.
+
+This can be useful when the same vault is synchronized from multiple devices.
+
+Default:
+
+```text
+Disabled
+```
+
+### Force Push
+
+When enabled, the plugin uses `git push --force`.
+
+This can be useful for a single-user vault or for an initial backup, but it can overwrite remote history.
+
+Default:
+
+```text
+Enabled
+```
+
+Use this option carefully when multiple devices or contributors use the same repository.
+
+### Automatic Sync Interval
+
+Automatically synchronize the vault while Obsidian is running.
+
+Available options:
+
+* Disabled
+* Every 5 minutes
+* Every 15 minutes
+* Every 30 minutes
+* Every 60 minutes
+
+Default:
+
+```text
+Disabled
+```
+
+### Sync On Startup
+
+Automatically start a synchronization after Obsidian starts.
+
+Default:
+
+```text
+Disabled
+```
+
+### Require Obsidian Vault Structure
+
+When enabled, the plugin verifies that the remote repository contains an Obsidian vault before allowing a destructive vault pull.
+
+The check looks for an `.obsidian` directory and Obsidian configuration files such as:
+
+```text
+.obsidian/app.json
+.obsidian/appearance.json
+.obsidian/core-plugins.json
+.obsidian/community-plugins.json
+.obsidian/workspace.json
+.obsidian/hotkeys.json
+```
+
+Default:
+
+```text
+Enabled
+```
+
+This provides an additional safeguard against accidentally pointing the plugin at an unrelated Git repository.
+
+## Authentication
+
+The plugin relies on Git for authentication rather than implementing a separate GitHub authentication system.
+
+### Git Credential Manager
+
+Git Credential Manager is the simplest option for HTTPS repositories.
+
+After installing Git, perform a Git operation. Git Credential Manager can open a browser authentication flow and securely store the resulting credentials.
+
+### Personal Access Token
+
+A GitHub Personal Access Token can also be used with HTTPS authentication.
+
+If using a token, avoid committing or publishing the token anywhere. In particular, do not commit a repository URL containing a token into a file inside your vault.
+
+For long-term use, Git Credential Manager or SSH is generally preferable to storing credentials directly in repository URLs.
+
+### SSH
+
+SSH authentication can be used with repositories such as:
+
+```text
+git@github.com:username/repository.git
+```
+
+Configure your SSH key with GitHub before using the repository URL in the plugin.
+
+## Usage
+
+### Sync Vault
+
+Click the synchronization icon in the left ribbon.
+
+The plugin performs the following operations:
+
+1. Detects the vault directory.
+2. Initializes Git if necessary.
+3. Configures the remote repository.
+4. Optionally pulls the remote branch.
+5. Configures the Git author identity.
+6. Stages changes with `git add .`.
+7. Creates a commit.
+8. Pushes the selected branch to GitHub.
+
+The default branch is `main`.
+
+The synchronization process is implemented directly through Git commands executed by the plugin.
+
+### Status Bar
+
+The status bar displays the current synchronization state.
+
+Clicking the status bar opens the log viewer.
+
+The status can indicate states such as:
+
+```text
+Git Sync: Ready
+Syncing...
+Pulling...
+Pushing...
+Stopped
+Synced at 17:50
+Sync Failed
+```
+
+### Log Viewer
+
+The log viewer displays Git output while operations are running.
+
+It provides controls for:
+
+* **Sync Now** — Run a complete synchronization.
+* **Pull** — Pull the latest remote changes.
+* **Stop** — Stop the currently running Git operation.
+* **Copy Logs** — Copy the current logs.
+* **Clear Logs** — Clear the log buffer.
+
+The plugin keeps a bounded log buffer rather than indefinitely storing operation output.
+
+## Command Palette
+
+The following commands are available through Obsidian's Command Palette:
+
+```text
+Git Sync: Sync vault to GitHub
+Git Sync: Pull latest changes from GitHub
+Git Sync: Pull vault from GitHub (replace local files)
+Git Sync: Push changes to GitHub
+Git Sync: View sync logs & status
+Git Sync: Stop current sync operation
+```
+
+The stop command is only available while a Git operation is running.
+
+## Pulling Changes
+
+### Pull latest changes
+
+The standard pull operation retrieves the latest changes from the configured GitHub repository while preserving the local Git history.
+
+Use:
+
+```text
+Git Sync: Pull latest changes from GitHub
+```
+
+### Pull and replace the vault
+
+The plugin also provides a separate operation for restoring a vault from GitHub:
+
+```text
+Git Sync: Pull vault from GitHub (replace local files)
+```
+
+This operation is intended for situations such as:
+
+* Setting up a vault on a new computer.
+* Restoring a vault from a backup.
+* Replacing a local vault with the version stored in GitHub.
+
+Before modifying local files, the plugin:
+
+1. Fetches the remote branch.
+2. Inspects the remote Git tree.
+3. Checks for an Obsidian vault structure.
+4. Displays information about the remote repository.
+5. Checks for uncommitted local changes.
+6. Asks for confirmation before replacing local files.
+
+If the remote repository does not appear to contain an Obsidian vault and **Require Obsidian Vault Structure** is enabled, the operation is aborted before local files are changed.
+
+### Warning
+
+Pulling a vault with the replace operation can overwrite local files.
+
+Make sure important local changes are committed or backed up before using it.
+
+## Restoring a Vault on a New Computer
+
+To restore an existing vault:
+
+1. Install Obsidian.
+2. Install Git.
+3. Create and open a new empty Obsidian vault.
+4. Install **GitHub Pull&Push**.
+5. Open the plugin settings.
+6. Enter the GitHub repository URL.
+7. Configure the branch and Git author information.
+8. Authenticate with GitHub.
+9. Run:
+
+```text
+Git Sync: Pull vault from GitHub (replace local files)
+```
+
+10. Review the information shown by the plugin.
+11. Confirm the operation.
+
+The remote repository is fetched and validated before the local vault is replaced.
+
+## Stopping an Operation
+
+A running Git operation can be stopped from:
+
+**Log Viewer → Stop**
+
+or through:
+
+```text
+Ctrl+P
+→ Git Sync: Stop current sync operation
+```
+
+The plugin tracks active Git child processes and terminates them when an operation is cancelled.
+
+An interrupted synchronization may leave a local commit that has not yet been pushed. Running synchronization again allows the remaining operation to complete.
+
+## Git Repository Structure
+
+The plugin works directly with the Git repository inside the Obsidian vault.
+
+A typical vault will therefore contain:
+
+```text
+MyVault/
+├── .git/
+├── .obsidian/
+├── Notes/
+├── Attachments/
+└── ...
+```
+
+The `.git` directory contains the local Git repository and should normally not be edited manually.
+
+Whether `.obsidian` should be committed is a personal choice. If you want the vault restoration validation to recognize the repository automatically, the repository needs to contain the relevant Obsidian configuration files.
+
+## Troubleshooting
+
+### Git was not found
+
+If the plugin reports that Git cannot be found:
+
+1. Make sure Git is installed.
+2. Run:
+
 ```powershell
-gh auth login
+git --version
 ```
-Select **GitHub.com** → **HTTPS** → **Yes** (Authenticate with web browser).
 
----
+3. If the command works in a terminal but not in Obsidian, specify the full Git executable path in the plugin settings.
 
-## 🛠️ Configuration & Settings
+On Windows, a common path is:
 
-Open **Settings (`Ctrl+,`) → Community plugins → Git Sync**:
+```text
+C:\Program Files\Git\cmd\git.exe
+```
 
-| Setting | Description | Default |
-| :--- | :--- | :--- |
-| **GitHub Repository URL** | Your remote repository URL (HTTPS or SSH). | *(empty)* |
-| **Git Executable Path** | Path to the Git binary. Leave as `git` or specify full path (e.g. `C:\Program Files\Git\cmd\git.exe`). Includes a **Test Git** button. | `git` |
-| **Git Author Name** | Your name or GitHub username for commit authorship. | *(empty)* |
-| **Git Author Email** | Your GitHub-associated email address for commits. | *(empty)* |
-| **Branch** | The target branch to push and pull from. | `main` |
-| **Commit Message Template** | Template for commit messages. Placeholders supported: `{date}` (YYYY-MM-DD) and `{time}` (HH:MM:SS). | `Auto-sync Obsidian Vault - {date} {time}` |
-| **Pull Before Push** | Pull remote changes before staging and committing. Recommended if syncing between multiple devices. | `false` |
-| **Force Push** | Use `--force` when pushing. Useful for initial vault backup or single-user vaults. | `true` |
-| **Automatic Sync Interval** | Schedule automatic background sync (Disabled, 5m, 15m, 30m, 60m). | `Disabled` |
-| **Sync On Startup** | Automatically triggers sync 3 seconds after Obsidian starts up. | `false` |
-| **Require Obsidian Vault Structure** | When pulling from GitHub, verify that the remote repository really contains an Obsidian vault (an `.obsidian` folder with config files) before replacing local files. | `true` |
+### Author identity unknown
 
----
+If Git reports:
 
-## 🖥️ Usage
+```text
+Author identity unknown
+```
 
-- **Ribbon Button**: Click the sync icon (🔄) in Obsidian's left ribbon to trigger sync immediately.
-- **Status Bar**: Check the status bar at the bottom right (`Git Sync: Ready ✓`, `Syncing... ⏳`, `Stopping... ⏹`, `Stopped ⏹`, or `Synced at 17:50 ✓`). Click it at any time to open the **Log Viewer**.
-- **Log Viewer**: Shows the live git output and provides five actions:
-  - **Sync Now** — start a full sync (disabled while an operation is running).
-  - **Pull** — download the repository configured in the settings over this vault. It validates the remote first and asks for confirmation, since local files are replaced.
-  - **Stop** — interrupt the running sync, pull, or push (disabled while idle). The git process tree is killed, the log records `--- SYNC STOPPED BY USER ---`, and the status bar switches to `Stopped ⏹`.
-  - **Copy Logs** — copy the entire log to the clipboard.
-  - **Clear Logs** — empty the log buffer.
-- **Command Palette (`Ctrl+P`)**:
-  - `Git Sync: Sync vault to GitHub`
-  - `Git Sync: Pull latest changes from GitHub` *(merge pull, keeps local commits)*
-  - `Git Sync: Push changes to GitHub`
-  - `Git Sync: Pull vault from GitHub (replace local files)` *(validates, then imports the remote vault)*
-  - `Git Sync: Stop current sync operation` *(only listed while an operation is running)*
-  - `Git Sync: View sync logs & status`
+enter both:
 
----
+* **Git Author Name**
+* **Git Author Email**
 
+in the plugin settings.
 
-### Why does the first sync take 3-5 minutes?
-On your very first sync, Git commits and uploads your **entire vault from scratch**, including all images (`.png`, `.jpg`), PDF attachments, and configuration files. Depending on your vault size and home internet upload speed, uploading 50-100MB of attachments will take a few minutes. 
+These values are used to configure the local Git repository before creating commits.
 
-**Future syncs only upload your modified notes**, which takes just 1-2 seconds!
+### LF will be replaced by CRLF
 
-### How do I cancel a sync that is taking too long?
-Open the **Log Viewer** (click the status bar at the bottom right) and press **Stop**. The running git command is terminated immediately, even in the middle of a large push, and the log records `--- SYNC STOPPED BY USER ---`.
+On Windows, Git may display messages about converting between LF and CRLF line endings.
 
-Because an interrupted run may stop between steps, the vault can end up committed locally but not pushed. Just press **Sync Now** again when you are ready to finish — the next run picks up where the previous one left off. Remote history is never left half-written, since Git updates refs atomically.
+These messages are related to Git's line-ending configuration and are not necessarily errors.
 
-### "The remote repository is not an Obsidian vault"
-Before replacing anything, Git Sync lists the remote branch and looks for a `.obsidian` folder containing the files Obsidian itself writes (`app.json`, `appearance.json`, `core-plugins.json`, `community-plugins.json`, `workspace.json`, `hotkeys.json`, `graph.json`, `file-recovery.json`, `core-plugins-migration.json`). If none of them are found, the pull stops with **no local file changed** — which is what you want when the URL accidentally points at a code repository.
+### Authentication failed
 
-If the repository *is* a vault but deliberately excludes its `.obsidian` folder (some people gitignore it), either commit that folder or turn off **Require Obsidian Vault Structure** in the settings to pull anyway.
+Check:
 
-### Restoring or bootstrapping a vault on a new machine
-1. Create a new empty vault in Obsidian and open it.
-2. Go to **Settings → Git Sync**, paste the **GitHub Repository URL**, set your **Git Author Name** / **Git Author Email** and the **Branch**, and authenticate (see above).
-3. Click **Pull Vault From GitHub** under **Settings → Actions**, or run `Git Sync: Pull vault from GitHub (replace local files)` from the command palette.
-4. Read the log: it reports the remote HEAD commit, the file count, how many Obsidian base files were found, and how many local files will be replaced. Confirm the dialog and the vault is downloaded.
-5. Success looks like `Vault verified on disk: all N Obsidian base files are present.` in the log and `Pulled at HH:MM ✓` in the status bar.
+* The repository URL.
+* Your GitHub permissions.
+* Your Git credentials.
+* Your SSH configuration if using an SSH repository.
+* Whether the repository is private.
 
-Pull **replaces the contents of the current vault** with the remote branch, so uncommitted local edits are lost (the dialog tells you how many files are affected). It also restores every tracked file to its committed state — if you commit plugin folders such as `.obsidian/plugins/`, their local copies are reset to the committed version as well.
+You can test the configured Git installation from the plugin settings and test repository access independently with Git if necessary.
 
-### "Author identity unknown / Please tell me who you are"
-Git requires an author name and email to create commits. Simply go to **Settings → Git Sync** and enter your **Git Author Name** and **Git Author Email**.
+## Safety Considerations
 
-### "LF will be replaced by CRLF" warnings
-These are normal Git messages on Windows indicating that line endings are being standardized between Windows (`CRLF`) and Unix/GitHub (`LF`). You can safely ignore them.
+This plugin operates directly on your vault's Git repository.
 
----
+In particular:
 
-## 📄 License
+* **Force Push** can overwrite remote history.
+* **Pull Before Push** can introduce remote changes into the local repository.
+* **Pull vault from GitHub** can replace local files.
+* Storing credentials directly inside a repository URL is not recommended.
+* Large attachments can significantly increase Git repository size.
+
+Always keep an independent backup of important data if the vault contains files that cannot be easily recreated.
+
+## License
 
 This project is licensed under the [MIT License](LICENSE).
 
+## Repository
+
+Source code and releases:
+
+[IlDimaz/ObsidianGitManage](https://github.com/IlDimaz/ObsidianGitManage?utm_source=chatgpt.com)
